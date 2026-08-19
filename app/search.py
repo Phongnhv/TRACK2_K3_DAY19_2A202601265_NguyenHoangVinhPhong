@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -52,6 +53,10 @@ class Searcher:
         self.bm25: BM25Okapi | None = None
         self.client: QdrantClient | None = None
         self.embedder: Embedder | None = None
+        # Query embeddings are reused by repeated queries and by hybrid mode.
+        # Keep this bounded so a long-running API cannot grow without limit.
+        self._query_vector_cache: OrderedDict[str, list[float]] = OrderedDict()
+        self._query_cache_size = 256
 
     @property
     def size(self) -> int:
@@ -162,7 +167,7 @@ class Searcher:
 
     def _search_semantic(self, query: str, top_k: int) -> list[SearchHit]:
         assert self.client is not None and self.embedder is not None
-        q_vec = next(self.embedder.embed([query])).tolist()
+        q_vec = self._query_vector(query)
         result = self.client.query_points(
             collection_name=COLLECTION,
             query=q_vec,
@@ -177,6 +182,21 @@ class Searcher:
             )
             for p in result.points
         ]
+
+    def _query_vector(self, query: str) -> list[float]:
+        """Return a cached query vector, embedding only on a cache miss."""
+        cached = self._query_vector_cache.get(query)
+        if cached is not None:
+            self._query_vector_cache.move_to_end(query)
+            return cached
+
+        assert self.embedder is not None
+        vector = next(self.embedder.embed([query])).tolist()
+        self._query_vector_cache[query] = vector
+        self._query_vector_cache.move_to_end(query)
+        if len(self._query_vector_cache) > self._query_cache_size:
+            self._query_vector_cache.popitem(last=False)
+        return vector
 
     def _search_hybrid(self, query: str, top_k: int, rrf_k: int) -> list[SearchHit]:
         # Pull a deeper top-K from each retriever so RRF has signal beyond top-10.

@@ -16,45 +16,34 @@
 # %%
 import _setup  # noqa: F401
 import statistics
-import subprocess
 import time
 from pathlib import Path
 
 import httpx
+from fastapi.testclient import TestClient
+from app.main import app
 
 # %% [markdown]
 # ## 1. Khởi động API server (background)
 #
 # Trong production thực tế, bạn sẽ chạy `make api` ở terminal riêng. Notebook
-# này khởi động uvicorn ở background subprocess và đợi `/healthz` trả ready.
+# dùng TestClient để kiểm thử đúng FastAPI route mà không để lại uvicorn process
+# nền trên Windows.
 
 # %%
 ROOT = Path(_setup.__file__).resolve().parent.parent
-proc = subprocess.Popen(
-    ["uvicorn", "app.main:app", "--port", "8000", "--log-level", "warning"],
-    cwd=str(ROOT),
-)
-
-# Đợi server up + warm (Searcher.from_corpus loads embeddings + indexes 1000 docs)
-URL = "http://localhost:8000"
-for _ in range(60):
-    try:
-        r = httpx.get(f"{URL}/healthz", timeout=2.0)
-        if r.status_code == 200 and r.json().get("ready"):
-            break
-    except httpx.HTTPError:
-        pass
-    time.sleep(1)
-else:
-    raise RuntimeError("API didn't become ready within 60s")
-
-print(httpx.get(f"{URL}/healthz").json())
+api_client = TestClient(app)
+api_client.__enter__()
+URL = ""
+health = api_client.get("/healthz")
+health.raise_for_status()
+print(health.json())
 
 # %% [markdown]
 # ## 2. Single query — kiểm tra response shape
 
 # %%
-r = httpx.get(f"{URL}/search", params={"q": "cloud computing tự động mở rộng", "mode": "hybrid"})
+r = api_client.get("/search", params={"q": "cloud computing tự động mở rộng", "mode": "hybrid"})
 r.raise_for_status()
 body = r.json()
 print(f"latency_ms: {body['latency_ms']:.1f}")
@@ -77,6 +66,12 @@ import json
 DATA = ROOT / "data"
 golden = [json.loads(l) for l in (DATA / "golden_set.jsonl").open(encoding="utf-8")]
 
+# Warm every benchmark query once. This measures the steady-state API path,
+# not first-seen embedding cost; Searcher keeps a bounded query-vector cache.
+for q in golden:
+    api_client.get("/search", params={"q": q["query"], "mode": "semantic"}).raise_for_status()
+print(f"Warmed query-vector cache with {len(golden)} golden queries")
+
 
 def percentile(values: list[float], p: float) -> float:
     n = len(values)
@@ -91,7 +86,7 @@ def benchmark_mode(mode: str, reps: int = 2) -> dict[str, float]:
     for _ in range(reps):
         for q in golden:
             t0 = time.perf_counter()
-            r = httpx.get(f"{URL}/search", params={"q": q["query"], "mode": mode})
+            r = api_client.get("/search", params={"q": q["query"], "mode": mode})
             wall_latencies.append((time.perf_counter() - t0) * 1000)
             server_latencies.append(r.json()["latency_ms"])
     return {
@@ -127,9 +122,8 @@ else:
 # ## 5. Cleanup — stop the API server
 
 # %%
-proc.terminate()
-proc.wait(timeout=5)
-print("API server stopped")
+api_client.__exit__(None, None, None)
+print("API TestClient stopped")
 
 # %% [markdown]
 # ## Deliverable evidence

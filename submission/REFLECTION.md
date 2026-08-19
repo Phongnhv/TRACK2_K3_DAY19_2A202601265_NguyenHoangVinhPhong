@@ -1,28 +1,21 @@
 # Reflection — Lab 19
 
-**Tên:** _<Họ Tên>_
-**Cohort:** _<A20-K1 / A20-K2 / ...>_
-**Path đã chạy:** _<lite | docker | both>_
+Tên: Nguyen Hoang Vinh Phong
+Cohort: A20 · Track 2
+Path: lite
 
----
+Trên golden set, BM25 mạnh nhất ở `exact` vì query chứa trực tiếp thuật ngữ
+trong corpus. Vector phù hợp hơn với `paraphrase` khi model hiểu được ngữ
+nghĩa. `mixed` là nơi hybrid thắng rõ nhất vì kết hợp tín hiệu từ khóa và
+ngữ nghĩa. Kết quả đo được: keyword 77,8%, semantic 73,2%, hybrid 78,6%;
+hybrid đạt 100% trên slice `mixed`.
 
-## Câu hỏi (≤ 200 chữ)
+Tôi không dùng hybrid khi query là exact và cần tốc độ, độ đơn giản hoặc khả
+năng giải thích của BM25. Pure vector cũng hợp lý khi dữ liệu và truy vấn
+chủ yếu giàu ngữ nghĩa, không có thuật ngữ ổn định. Hybrid không đáng dùng
+nếu chi phí embedding hoặc latency nghiêm ngặt hơn lợi ích chất lượng.
 
-> Trên golden set 50 queries, mode nào thắng ở loại query nào (`exact` /
-> `paraphrase` / `mixed`), và tại sao? Khi nào bạn **không** dùng hybrid
-> (i.e. khi nào pure BM25 hoặc pure vector là lựa chọn đúng)?
+Điểm bất ngờ: model embedding tiếng Anh vẫn tìm đúng một số paraphrase tiếng
+Việt, nhưng semantic giảm rõ so với mixed query.
 
-_Answer here._
-
----
-
-## Điều ngạc nhiên nhất khi làm lab này
-
-_(Optional, 1–2 câu)_
-
----
-
-## Bonus challenge
-
-- [ ] Đã làm bonus (xem `bonus/`)
-- [ ] Pair work với: _<tên đồng đội nếu có>_
+Bonus: chưa làm. Pair work: không có.
